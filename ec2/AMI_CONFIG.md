@@ -1,5 +1,5 @@
 
-
+## Default root volume will not be large enough for qplot package, install this onto the cluster after launch.
 
 ## AMI Image host setup
 Starting with this image:
@@ -8,6 +8,7 @@ Starting with this image:
 ```shell
 BASE_AMI="ami-765b3e1f"
 NODE_TYPE="m1.xlarge"
+#Start a cluster with the base image, which can then be configured by installing additional software/tools
 starcluster start -o -s 1 -b 0.50 -i $NODE_TYPE -n $BASE_AMI imagehost
 
 starcluster listclusters --show-ssh-status imagehost
@@ -106,6 +107,9 @@ tar -xzf v1.5.0-alpha3.tar.gz
 cd /usr/bin/s3cmd/s3cmd-1.5.0-alpha3/
 python setup.py install
 cd ~
+#### Add support for federated token
+##### Different upload and download keys
+
 s3cmd --configure
 ```
 **Note** that this configuration file is saved to '/root/.s3cfg' (contains ACCESS KEYS!)
@@ -176,7 +180,9 @@ make
 ln -s /usr/bin/bwa/bwa-0.7.5a/bwa /usr/local/bin/bwa
 ```
 
-#### GATK (saved nightly on S3)
+#### GATK - download standalone Jar or Build from Source. Pipeline designed with GATK 2.7-2 Choose one option for GATK.
+
+##### GATK (saved nightly on S3)
 ```shell
 mkdir /usr/bin/gatk
 cd /usr/bin/gatk
@@ -187,12 +193,37 @@ ln -s /usr/bin/gatk/GenomeAnalysisTK-2.7-2-g6bda569 /usr/local/bin/gatk
 java -d64 -Xmx10g -jar /usr/local/bin/gatk/GenomeAnalysisTK.jar -version
 ```
 
+##### GATK (v 2.7-2) - Download specific version from git repo, install Oracle Java JDK7, build GATK from source.
+```shell
+sudo apt-get install python-software-properties
+sudo add-apt-repository ppa:webupd8team/java
+sudo apt-get update
+# Requires user interaction to accept license.
+sudo apt-get install oracle-java7-installer 
+curl -L http://repo1.maven.org/maven2/ant/ant-apache-bcel/1.6.5/ant-apache-bcel-1.6.5.jar -o ~/.ant/lib/ant-apache-bcel-1.6.5.jar
+
+mkdir /usr/bin/gatk
+cd /usr/bin/gatk
+# Change the github commit to match desired GATK version. Currently configured for GATK 2.7-2-6bda569
+curl -L https://github.com/broadgsa/gatk-protected/archive/6bda5696664da40bc2baef4f4cb69e4ef1f86ce5.zip -o /usr/bin/gatk/GenomeAnalysisTK-2.7-2-g6bda569.zip
+unzip GenomeAnalysisTK-2.7-2-g6bda569.zip
+cd /usr/bin/gatk/gatk-protected-6bda5696664da40bc2baef4f4cb69e4ef1f86ce5
+ant clean dist
+cp /usr/bin/gatk/gatk-protected-6bda5696664da40bc2baef4f4cb69e4ef1f86ce5/lib/bcel-5.2.jar ~/.ant/lib/bcel-5.2.jar
+ant clean package.gatk.full
+mkdir /usr/bin/gatk/GenomeAnalysisTK-2.7-2-g6bda569
+cp -r /usr/bin/gatk/gatk-protected-6bda5696664da40bc2baef4f4cb69e4ef1f86ce5/dist/packages/GenomeAnalysisTK-exported/* /usr/bin/gatk/GenomeAnalysisTK-2.7-2-g6bda569/
+ln -s /usr/bin/gatk/GenomeAnalysisTK-2.7-2-g6bda569 /usr/local/bin/gatk
+# check version
+java -d64 -Xmx10g -jar /usr/local/bin/gatk/GenomeAnalysisTK.jar -version
+```
+
 #### Picard
 ```shell
 mkdir /usr/bin/picard
-curl -L http://sourceforge.net/projects/picard/files/latest/download -o /usr/bin/picard/picard-tools-latest.zip
+curl -L http://sourceforge.net/projects/picard/files/picard-tools/1.100/picard-tools-1.100.zip/download -o /usr/bin/picard/picard-tools-1.100.zip
 cd /usr/bin/picard/
-unzip picard-tools-latest.zip
+unzip picard-tools-1.100.zip
 ln -s /usr/bin/picard/picard-tools-1.100 /usr/local/bin/picard
 ```
 
@@ -224,15 +255,26 @@ make
 ln -s /usr/bin/vcftools/vcftools_0.1.11/bin /usr/local/bin/vcftools
 ```
 
+
 #### qplot (statistics on bam files)
-Note that this downloads a ton of files. Much better to just use executable file and reference files in S3.
+Note that this downloads a ton of files. Much better to just use executable file and reference files in S3. Can also be installed in shared storage, such as the EBS /data/ volume.
 ```shell
 mkdir /usr/local/bin/qplot
-wget http://www.sph.umich.edu/csg/zhanxw/software/qplot/qplot.20130627.tar.gz
+cd /usr/local/bin/qplot
+wget http://www.sph.umich.edu/csg/zhanxw/software/qplot/qplot-source.20130627.tar.gz
+gunzip qplot.20130627.tar.gz
+tar -xzf qplot.20130627.tar
 ```
 
 #### Freebayes
+##### Install cmake
 ```
+sudo apt-get install cmake
+```
+#### Install Freebayes
+
+```
+cd /usr/local/bin
 git clone --recursive git://github.com/ekg/freebayes.git
 cd freebayes/
 make
@@ -246,7 +288,7 @@ apt-get install -q -y r-base-core
 ```
 #### R packages
 ```shell
-Rscript --vanilla -e 'install.packages("ggplot2", repos="http://cran.r-project.org")'
+Rscript --vanilla -e 'install.packages(c("ggplot2"), repos="http://cran.r-project.org", dependencies=TRUE)'
 ```
 
 #### PyTables
@@ -264,7 +306,7 @@ sudo pip install -e git+https://github.com/PyTables/PyTables.git@v.2.4.0#egg=tab
 apt-get install cpanminus
 cpanm Parallel::ForkManager
 # install and build samtools with special flags
-cd ~
+cd /usr/local/bin
 wget http://downloads.sourceforge.net/project/samtools/samtools/0.1.19/samtools-0.1.19.tar.bz2
 tar -xjf samtools-0.1.19.tar.bz2
 cd samtools-0.1.19
@@ -274,7 +316,8 @@ make CXXFLAGS=-fPIC CFLAGS=-fPIC CPPFLAGS=-fPIC
 #  Run on all nodes
 apt-get install -q -y cpanminus
 cpanm Parallel::ForkManager
-export SAMTOOLS=/data/bin/samtools-0.1.19
+export SAMTOOLS=/usr/local/bin/samtools-0.1.19
+cpanm Test::NoWarnings Test::Deep Test::Differences Test::Exception Test::Warn Exception::Class Test::More Test::Most
 cpanm Bio::DB::Sam
 ```
 
@@ -309,12 +352,28 @@ rm ~/.s3cfg
 ```
 
 ### Use StarCluster s3image to save
-*Note*: currently requires use of development branch-- fix to be included in 0.94.1
 ```shell
-INSTANCE="i-6a51df17"
-AMI_NAME="asdjre_base"
-starcluster s3image $INSTANCE $AMI_NAME asdjre_ami
+#Creates an EBS backed AMI from 
+starcluster ebsimage i-9999999 uw_ssc_exome_recall
 ``` 
+
+
+## Launch cluster using newly created image.
+
+### Generate federated token for access to s3.
+```shell
+mkdir /usr/bin/ndar/
+curl -L https://ndar.nih.gov/jnlps/download_manager_client/downloadmanager.zip o /usr/bin/ndar/downloadmanager.zip
+unzip downloadmanager.zip
+java -jar downloadmanager.java -g awskeys.txt
+```
+
+### Configure s3cmd to work with security credentials.
+```shell
+s3cmd --configure
+enter the federated token information provided in the ~.s3cfg file.
+# You should now be able to list/downloaod shared data.
+```
 
 
 ## RAID
@@ -337,3 +396,9 @@ mkfs.ext4 /dev/md0
 # remount!
 mount /dev/md0 /mnt
 ```
+
+## starpipe
+May be able to remove this, if so should be removed from easy_install setup.py dependencies list.
+
+
+
